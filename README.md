@@ -6,7 +6,7 @@
 
 ## Índice
 
-1. [Contexto y motivación](#1-contexto-y-motivación)
+1. [Contexto](#1-contexto)
 2. [Estándar ERC-3643 (T-REX)](#2-estándar-erc-3643-t-rex)
 3. [Arquitectura del contrato](#3-arquitectura-del-contrato)
 4. [Variables de estado y storage layout](#4-variables-de-estado-y-storage-layout)
@@ -22,18 +22,20 @@
 
 ---
 
-## 1. Contexto y motivación
+## 1. Contexto
 
-Los Fondos Comunes de Inversión (FCI) son vehículos de inversión colectiva regulados en Argentina por la Comisión Nacional de Valores (CNV). Un FCI Cerrado limita las suscripciones a una ventana inicial y no permite rescates hasta su vencimiento, lo que lo asemeja funcionalmente a un bono o a cuotapartes de un fideicomiso.
+Los Fondos Comunes de Inversión (FCI) son vehículos de inversión colectiva regulados en Argentina por la Comisión Nacional de Valores (CNV). Un FCI Cerrado limita las suscripciones a una ventana inicial y no permite rescates hasta su vencimiento, lo que genera un problema estructural de iliquidez para el inversor que necesita liquidez antes del plazo.
 
-Este proyecto explora la tokenización de un FCI Cerrado — puntualmente del tipo "Simple Estate" (activos inmobiliarios) — como un **security token** desplegado en una blockchain EVM-compatible. La tokenización permite:
+Este proyecto implementa el contrato inteligente central de una arquitectura de tokenización para FCI Cerrados en el contexto del Sandbox regulatorio habilitado por la Resolución General 1069/2025 de la CNV — y su complemento RG 1081/2025 — que habilita la representación digital de valores negociables sobre infraestructura blockchain, exigiendo identificación plena del inversor y la figura de un Proveedor de Servicios de Activos Virtuales (PSAV) registrado como custodio.
 
-- **Fraccionamiento** de activos ilíquidos (p. ej. un inmueble de USD 5M tokenizado en 5.000.000 cuotapartes de USD 1).
-- **Transferibilidad controlada** entre inversores verificados en un mercado secundario OTC.
-- **Automatización regulatoria**: las reglas de compliance (límites por inversor, restricciones de jurisdicción, lock-ups) se codifican on-chain y se ejecutan en cada transferencia.
+El contrato fue diseñado como componente central del MVP validado en la tesis, desplegado en entorno de simulación EVM (Remix VM) sobre una arquitectura de referencia basada en Polygon PoS. En la narrativa de la tesis (Capítulos 5 y 6) el contrato se denomina **FimaToken** — ese es el nombre de negocio del activo tokenizado. En el código, el identificador técnico del contrato es `FCIToken_Tesis`. La tokenización permite:
+
+- **Transferibilidad controlada** entre inversores verificados en un mercado secundario OTC, resolviendo el problema de iliquidez de los FCI Cerrados.
+- **Compliance embebido**: las reglas de KYC/AML se codifican on-chain como pre-condición de cada transferencia, eliminando el control ex-post típico de la banca tradicional.
+- **Colateralización programable**: las cuotas-partes tokenizadas pueden pigñorarse como garantía de préstamos mediante `freezePartialTokens()`, con bloqueo automático e irrevocable sin intervención humana.
 - **Trazabilidad inmutable** de todas las operaciones, accesible para el regulador en tiempo real.
 
-El contrato implementa el estándar **ERC-3643** (también conocido como T-REX: Token for Regulated EXchanges), que es el estándar de facto para security tokens en Ethereum con KYC/AML on-chain.
+El contrato implementa el estándar **ERC-3643** (también conocido como T-REX: Token for Regulated EXchanges), seleccionado por ser el único estándar que satisface simultáneamente identidad obligatoria del destinatario, compatibilidad KYC/AML nativa y cumplimiento de la RG 1069/2025.
 
 ---
 
@@ -240,7 +242,7 @@ Owner.recoveryAddress(lostWallet, newWallet, investorOnchainID)
 
 ## 7. Revisión de seguridad — hallazgos y correcciones
 
-El contrato original (v1.0.0) fue sometido a una revisión completa de seguridad y performance. Se identificaron **15 hallazgos** entre críticos y optimizaciones de gas. Todos fueron corregidos en v2.0.0. El registro completo con código antes/después está en [Updates.md](Updates.md).
+El contrato original (v1.0.0) fue sometido a una revisión completa de seguridad y performance. Se identificaron **15 hallazgos** entre críticos y optimizaciones de gas. Todos fueron corregidos en v2.0.0.
 
 ### Críticos
 
@@ -313,7 +315,7 @@ ERC-3643 extiende ERC-20. Se agregaron `approve`, `allowance` y `transferFrom` c
 
 ### Por qué `balanceOf` retorna el saldo total (incluyendo tokens congelados)
 
-Esta es la pregunta más frecuente al leer el contrato. La justificación en profundidad está en [balanceOf.md](balanceOf.md); el resumen:
+Esta es la pregunta más frecuente al leer el contrato. El resumen:
 
 **1. Invariante contable ERC-20:** `Σ balanceOf(holders) == totalSupply` debe cumplirse. Si `balanceOf` devolviera el saldo disponible, el delta de tokens congelados quedaría "perdido", rompiendo cualquier herramienta de auditoría o prueba de reservas.
 
@@ -420,8 +422,6 @@ fci_erc3643/
 │
 ├── foundry.toml                         ← configuración del proyecto
 │
-├── Updates.md                           ← registro de todos los cambios v1→v2
-├── balanceOf.md                         ← justificación del diseño de balanceOf
 └── README.md                            ← este archivo
 ```
 
@@ -455,11 +455,11 @@ attacker → EOA sin permisos
 | Sección | Tests | Qué verifica |
 |---|---|---|
 | **[A] Constructor** | 7 | Owner, bindToken, módulos, estado inicial, zero-address guards |
-| **[B] Mint** | 7 | Supply, balance, eventos Minted+Transfer, compliance created hook, acceso, freeze dest. |
+| **[B] Mint** | 7 | Supply, balance, eventos Minted+Transfer, compliance created hook, acceso, freeze dest. — **RF-01** (solo MINTER_ROLE emite) |
 | **[C] Burn** | 6 | Supply, balance, eventos Burned+Transfer, **CRITICAL-1** (freeze+burn), acceso |
-| **[D] Transfer** | 8 | Happy path, eventos, **HIGH-2** (freeze destinatario), balance disponible, pausa, compliance |
+| **[D] Transfer** | 8 | Happy path, eventos, **HIGH-2** (freeze destinatario), balance disponible, pausa, compliance — **RF-01** (solo wallets KYC reciben) |
 | **[E] Allowance** | 8 | `approve`, `transferFrom`, deducción allowance, freeze source/dest, pausa, zero spender |
-| **[F] Freeze parcial** | 8 | Freeze/unfreeze, eventos, límites, **MEDIUM-3** (no self-unfreeze) |
+| **[F] Freeze parcial** | 8 | Freeze/unfreeze, eventos, límites, **MEDIUM-3** (no self-unfreeze) — **RF-04** (colateralización programable) |
 | **[G] Freeze total** | 5 | Set/lift, bloqueo de transfer, evento AddressFrozen |
 | **[H] Recovery** | 7 | Happy path, **CRITICAL-1** (migra frozen), **HIGH-3** (valida identidad), zero bal, access |
 | **[I] Pause** | 6 | Flag, bloqueo de transfer y transferFrom, restauración, acceso |
@@ -468,7 +468,7 @@ attacker → EOA sin permisos
 | **[L] Info setters** | 5 | name, symbol, onchainID, evento UpdatedTokenInformation, access |
 | **[M] Balance semántico** | 4 | `balanceOf` = total, `availableBalanceOf` = disponible, totalSupply invariante |
 | **[N] Fuzz** | 4 × 256 | Mint, transfer, **CRITICAL-1 invariante** (freeze+burn), approve+transferFrom |
-| **[O] forcedTransfer** | 9 + 1 × 256 | **RF-03** happy path, bypass de freeze emisor/receptor, bypass compliance, colateral LTV intacto, revert, acceso, fuzz |
+| **[O] forcedTransfer** | 9 + 1 × 256 | **RF-03** happy path, bypass de freeze emisor/receptor, bypass compliance, colateral LTV intacto, revert, acceso, fuzz. *Nota: la tesis declara RF-03 fuera del alcance del MVP original (v1.0.0). La función `forcedTransfer` fue incorporada en la revisión de seguridad v2.0.0 y está completamente testeada en esta versión del contrato.* |
 | **Total** | **106 tests** | **0 fallos** |
 
 ### Tests de regresión para hallazgos críticos
@@ -573,15 +573,15 @@ Este contrato fue diseñado para demostrar los principios del estándar ERC-3643
 
 ### Control de acceso con roles (RBAC)
 
-El patrón `onlyOwner` concentra todo el poder administrativo en una única clave. En producción se recomienda un sistema de roles separados:
+El patrón `onlyOwner` del MVP concentra todo el poder administrativo en una única clave — simplificación deliberada para la validación lógica. En producción se recomienda un sistema de roles separados tal como lo define la arquitectura de la tesis:
 
-| Rol | Operaciones |
-|---|---|
-| **Owner / Multisig** | Governance: reemplazar módulos, transferir ownership |
-| **Agent** | Operaciones diarias: mint, burn, freeze (típicamente la mesa de operaciones del fondo) |
-| **Compliance Officer** | Actualizaciones al módulo de compliance |
+| Rol | Asignado a | Operaciones |
+|---|---|---|
+| **Owner / Multisig** | Sociedad Gerente + PSAV | Governance: reemplazar módulos, transferir ownership |
+| **AGENT_ROLE** | PSAV | Gestión de la Whitelist (KYC): agregar o remover inversores, ejecutar `forcedTransfer` bajo resolución judicial |
+| **MINTER_ROLE** | Core Bancario de la Gerente | Emisión de cuotas-partes (`mint`) al detectar pago fiat confirmado, sin poder modificar la gobernanza del fondo |
 
-La implementación de referencia de T-REX usa `AgentRole` separado del owner.
+Esta separación de roles garantiza que el PSAV no pueda emitir tokens y que el Core Bancario no pueda modificar la whitelist — principio de mínimo privilegio aplicado a la operatoria del fondo.
 
 ### Timelock en cambios críticos
 
@@ -612,10 +612,9 @@ Los mocks de tests (`MockCompliance`, `MockIdentityRegistry`) son simplificacion
 | [test/FCIToken.t.sol](test/FCIToken.t.sol) | Suite de 106 tests Foundry (unitarios + fuzz) |
 | [test/mocks/MockCompliance.sol](test/mocks/MockCompliance.sol) | Mock del módulo de compliance para testing |
 | [test/mocks/MockIdentityRegistry.sol](test/mocks/MockIdentityRegistry.sol) | Mock del registro de identidad KYC para testing |
-| [Updates.md](Updates.md) | Registro completo de hallazgos y correcciones v1.0.0 → v2.0.0, con código antes/después |
-| [balanceOf.md](balanceOf.md) | Justificación en profundidad del diseño de `balanceOf` vs `availableBalanceOf` |
+| [README.md](README.md) | Documentación completa del proyecto |
 
 ---
 
-*Trabajo de Tesis — Tokenización de Activos Financieros Regulados en Blockchain*
-*Facultad de Ciencias de la Información · Universidad de Palermo*
+*Trabajo de Tesis — Maestría en Tecnología de la Información*
+*Universidad de Palermo · 2026*
