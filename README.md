@@ -63,7 +63,7 @@ El contrato original (v1.0.0) fue sometido a una revisión completa de seguridad
 - **Estándar de token:** ERC-3643 con módulos `IIdentityRegistry` e `ICompliance`
 - **Gestión de identidad:** Compatible con W3C DID / ONCHAINID
 - **Decimales:** Configurables en el constructor (6 para este FCI)
-- **Roles de producción:** `AGENT_ROLE` (PSAV — gestión de whitelist), `MINTER_ROLE` (Core Banking — emisión)
+- **Roles de producción:** `AGENT_ROLE` (PSAV — gestión de whitelist), `MINTER_ROLE` (Core Banking — emisión) *(no implementados en el MVP — el owner ejecuta ambos roles como simplificación deliberada del prototipo; en producción se recomienda separar responsabilidades mediante AccessControl)*
 - **Gobernanza de producción:** Multisig 2-de-3 (Sociedad Gerente + PSAV + Auditor Externo)
 
 ---
